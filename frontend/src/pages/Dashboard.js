@@ -16,7 +16,6 @@ export default function Dashboard() {
     fetchVolunteers();
   }, []);
 
-  // Fetch Needs
   const fetchNeeds = async () => {
     try {
       const q = query(collection(db, "needs"), orderBy("createdAt", "desc"));
@@ -35,7 +34,6 @@ export default function Dashboard() {
     }
   };
 
-  // Fetch Volunteers
   const fetchVolunteers = async () => {
     try {
       const snapshot = await getDocs(collection(db, "volunteers"));
@@ -51,11 +49,27 @@ export default function Dashboard() {
     }
   };
 
-  // 🔥 Matching Logic (moved ABOVE useEffect)
+  // 📍 Distance calculation (Haversine)
+  function getDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) *
+      Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  }
+
+  // Matching logic
   const getMatches = (need) => {
     const keywords = [
-      "food","book","medical","education","clothes",
-      "copy","stationery","teaching","sports"
+      "food", "book", "medical", "education",
+      "clothes", "copy", "stationery", "teaching", "sports"
     ];
 
     const needText = (need.title + " " + need.description).toLowerCase();
@@ -64,6 +78,7 @@ export default function Dashboard() {
       .map((v) => {
         const skillsText = v.skills?.toLowerCase() || "";
 
+        // 🔹 Skill score
         let skillScore = 0;
         keywords.forEach((word) => {
           if (needText.includes(word) && skillsText.includes(word)) {
@@ -71,16 +86,29 @@ export default function Dashboard() {
           }
         });
 
+        // 🔹 Distance-based location score
         let locationScore = 0;
-        if (v.location?.toLowerCase() === need.location?.toLowerCase()) {
-          locationScore = 1;
+
+        if (v.lat && v.lng && need.lat && need.lng) {
+          const distance = getDistance(
+            Number(v.lat),
+            Number(v.lng),
+            Number(need.lat),
+            Number(need.lng)
+          );
+
+          if (distance < 10) locationScore = 3;
+          else if (distance < 50) locationScore = 2;
+          else if (distance < 100) locationScore = 1;
         }
 
+        // 🔹 Urgency score
         let urgencyScore = 0;
         if (need.urgency === "High") urgencyScore = 3;
         else if (need.urgency === "Medium") urgencyScore = 2;
         else urgencyScore = 1;
 
+        // 🔥 Final score
         const score =
           (skillScore * 5) +
           (locationScore * 3) +
@@ -91,8 +119,7 @@ export default function Dashboard() {
       .sort((a, b) => b.score - a.score);
   };
 
-  // 🔥 AI Explanation Generator
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // AI explanation generation
   useEffect(() => {
     const generateAllExplanations = async () => {
       const newExplanations = {};
@@ -113,7 +140,6 @@ export default function Dashboard() {
     }
   }, [needs, volunteers]);
 
-  // Urgency UI
   const getUrgencyClass = (urgency) => {
     switch (urgency) {
       case "High":
@@ -146,13 +172,12 @@ export default function Dashboard() {
       ) : (
         <div className="cards-grid">
           {needs.map((item) => {
-            const matches = getMatches(item).slice(0, 2);
-            const validMatches = matches.filter((v) => v.score > 0);
+            const matches = getMatches(item).slice(0, 3);
+            const validMatches = matches.filter(v => v.score > 0);
 
             return (
               <div key={item.id} className="glass-card need-card">
-                
-                {/* Header */}
+
                 <div className="card-header">
                   <h3 className="card-title">{item.title}</h3>
                   <span className={`urgency-badge ${getUrgencyClass(item.urgency)}`}>
@@ -161,16 +186,13 @@ export default function Dashboard() {
                   </span>
                 </div>
 
-                {/* Description */}
                 <p className="card-description">{item.description}</p>
 
-                {/* Location */}
                 <div className="card-footer">
                   <MapPin size={16} />
                   {item.location}
                 </div>
 
-                {/* Matching Section */}
                 <div style={{
                   marginTop: "12px",
                   fontSize: "13px",
@@ -185,19 +207,14 @@ export default function Dashboard() {
                     </p>
                   ) : (
                     <>
-                      {/* Best Match */}
                       <p style={{ color: "#22c55e", fontWeight: "bold" }}>
-                        ✅ Best Match: {validMatches[0].name}
+                        ⭐ Best Match: {validMatches[0].name}
                       </p>
 
-                      {/* AI Explanation */}
                       <p style={{ fontSize: "12px", color: "#aaa" }}>
-                        {explanations[item.id] 
-                          ? explanations[item.id] 
-                          : "🤖 Generating AI insight..."}
+                        {explanations[item.id] || "Analyzing..."}
                       </p>
 
-                      {/* List */}
                       {validMatches.map((v) => (
                         <p key={v.id}>
                           {v.name} (Score: {Math.round(v.score)})
